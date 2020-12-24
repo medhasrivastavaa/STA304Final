@@ -11,21 +11,21 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(cowplot)
 theme_set(theme_bw())
-library(dplyr)
-library(mgcv)
 library(tidymv)
 library(gtrendsR)   
 library(tidyverse)  
 library(broom)
 library(knitr)
+library(papeR)
 library(huxtable)
+library(zoo)
 
-
+Sys.setenv(`_R_S3_METHOD_REGISTRATION_NOTE_OVERWRITES_` = "false") 
 ```
 
 ##Abstract
 
-COVID-19 has been spreading rapidly throughout the world since late 2019, becoming a major pandemic and a major point of research. A crucial goal that could aid the world’s ability to minimize damage from the pandemic is to be able to predict increases in cases before they happen. Multiple linear regression models are useful for using data to predict an outcome. This report employs an MLR model using Google Trends search data on COVID-19 related terms, and data on the number of new COVID-19 tests per day in the US, to predict the number new COVID-19 cases per day in the US. The model finds Google searches for “Covid testing” and “Covid vaccine” to be the most significant predictors for new cases per day, along with the number of tests per day. Propensity score analysis found a non-causal relationship between high searches and new cases, showing a correlational relationship between the GT searches and new COVID-19 cases in the US. Code and data supporting this analysis is available at: Xgr
+COVID-19 has been spreading rapidly throughout the world since late 2019, becoming a major pandemic and a major point of research. A crucial goal that could aid the world’s ability to minimize damage from the pandemic is to be able to predict increases in cases before they happen. Multiple linear regression models are useful for using data to predict an outcome. This report employs an MLR model using Google Trends search data on COVID-19 related terms, and data on the number of new COVID-19 tests per day in the US, to predict the number new COVID-19 cases per day in the US. The model finds Google searches for “Covid testing” and “Covid vaccine” to be the most significant predictors for new cases per day, along with the number of tests per day. Propensity score analysis found a non-causal relationship between high searches and new cases, showing a correlational relationship between the GT searches and new COVID-19 cases in the US. Code and data supporting this analysis is available at: https://github.com/medhasrivastavaa/STA304Final/
 
 Key words: Multiple Linear Regression, Propensity Score, Causal Inference, Observational Study, COVID-19, Google Trends, USA
 
@@ -137,13 +137,15 @@ alldata$sorethroat <- as.numeric(alldata$sorethroat)
 ```
 
 
-```{r, echo = FALSE, warning = FALSE}
+```{r, echo = FALSE, warning = FALSE, results = 'asis'}
 
 #Baseline characteristics table
-library(tableone)
-table1 <- CreateTableOne(data = alldata)
-kable(summary(table1))
+table1<- summarize(alldata, type = c("numeric", "factor"),
+    variables = names(alldata), digits = 2, smallest.pval = 0.001,
+    sep = NULL, sanitize = TRUE, drop = TRUE,
+    show.NAs = FALSE)
 
+kable(table1, caption = "Summary Characteristics of All data")
 ```
 
 Table 1 shows the baseline characteristics of the data, showing the highest mean values are for the number of total cases and new cases, and for the number of new and total tests. The cases and tests values are in primarily in the millions, whereas the values for the GT scores are in the range of 1-100. The maximum values for the different GT keywords are very different, where “covid symptoms” has a maximum of 20 while “face mask” has a maximum of 100, because of their relative scoring. The maximum of 100 for “face mask” does not indicate it was searched significantly more than “covid symptoms” overall, but instead it means “face mask” was searched more than other things on a specific day (however the actual amount it was searched could still be less than the amount “covid symptoms” was searched on the date it reached its maximum). Based on standard deviation, “face mask”, “covid testing”, and “fever” appear to be the least variable in their scores.  
@@ -153,7 +155,7 @@ Table 1 shows the baseline characteristics of the data, showing the highest mean
 #Raw data plot OWID data (FIGURE 1)
 par(mfrow=c(1,2))
 plot(x = alldata$new_tests, y = alldata$new_cases, xlab = "Number of Daily New Tests", ylab = "Number of Daily New Cases",
-     main = "Figure 1A: Relationship bewteen new COVID-19 tests & \nnew COVID-19 cases per day in the US", font.main = 2,
+     main = " Figure 1A: Relationship bewteen new COVID-19 tests & \nnew COVID-19 cases per day in the US", font.main = 2,
      cex.main=0.8, cex.axis = 0.8) 
 plot(x = alldata$date, y = alldata$new_cases, xlab = "Date", ylab = "Number of Daily New Cases",
      main = "Figure 1B: Raw data for \nnew COVID-19 cases per day in the US", font.main = 2,
@@ -168,7 +170,6 @@ The number of new tests per day in the US was also used as a predictor because i
 
 #Raw data plot for symptoms GT data (FIGURE 2)
 
-library(zoo)
 rollingdata <- alldata %>%
   mutate(covidvaccinemoving = rollmean(covidvaccine, k = 7, fill = NA)) %>%
   mutate(covidtestingmoving = rollmean(covidtesting, k = 7, fill = NA)) %>%
@@ -184,13 +185,13 @@ p1 <- ggplot(rollingdata, aes(date) ) +
   geom_line(aes(y = fevermoving, colour = "Fever")) +
   geom_line(aes(y = shortnessbreathmoving, colour = "Shortness of Breath")) + xlab("Date") + 
   ylab("GT Search Score") + ggtitle("Raw Daily Google Trends Data for all COVID-19 related symptoms") + 
-  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Symptoms')
+  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Symptoms') + theme(plot.title = element_text(size=10))
 
 p2 <- ggplot(rollingdata, aes(date) ) + 
   geom_line(aes(y = sorethroatmoving, colour = "Sore Throat")) +
   geom_line(aes(y = shortnessbreathmoving, colour = "Shortness of Breath")) + xlab("Date") + 
   ylab("GT Search Score") + ggtitle("Raw Daily Google Trends Data for 'Sore Throat' and 'Shortness of Breath'") + 
-  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Symptoms')
+  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Symptoms') + theme(plot.title = element_text(size=10))
 
 title <- ggdraw() +
   draw_label("Figure 2", x = 0.05, hjust = 0)
@@ -209,7 +210,7 @@ ggplot(rollingdata, aes(date) ) +
   geom_line(aes(y = covidsymptomsmoving, colour = "Covid Symptoms")) +
   geom_line(aes(y = facemaskmoving, colour = "Face Mask")) + xlab("Date") + 
   ylab("GT Search Score") + ggtitle("Figure 3: Raw Daily Google Trends Data for COVID-19 related keywords") + 
-  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Keywords') 
+  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Keywords') + theme(plot.title = element_text(size=10))
 ```
 
 
@@ -265,12 +266,12 @@ back1 <- step(lm1, direction = "backward")
 #Initial Regression Output table 
 
 lm1tidy <- tidy(lm1)
-kable(lm1tidy, caption = "Table 2: Multiple linear regression model using all 9 predictors")
+kable(lm1tidy, caption = "Multiple linear regression model using all 9 predictors")
 
 #Fitting final regression + output table 
 lmfinal <- lm(new_cases ~ new_tests + lysol + facemask + covidtesting + covidvaccine + shortnessbreath, data = alldata)
 modtidy <- tidy(lmfinal)
-kable(modtidy, caption = "Table 3: Reduced multiple linear regression model with 6 predictors")
+kable(modtidy, caption = "Reduced multiple linear regression model with 6 predictors")
 
 ```
 
@@ -282,7 +283,7 @@ Table 3 shows the final MLR model fit to the data using backward AIC elimination
 ```{r, warning = FALSE, echo = FALSE}
 
 ##PROPENSITY SCORE MATCHING CODE
-#treatment: trend search score >50? and then outcome: high new cases rate
+#treatment: trend search score >50 and then outcome: high new cases rate
 
 alldata <-
   alldata %>% 
@@ -366,7 +367,7 @@ propensity_score_regression <-
   lm(new_cases ~ shortnessbreath + lysol + covidtesting + covidvaccine + highsearches, 
                 data = alldata_matched)
 
-huxtable::huxreg(propensity_score_regression) %>% set_caption("Table 4: Propensity Score Regression Analysis")
+huxreg(propensity_score_regression) %>% set_caption("Propensity Score Regression Analysis")
 ```
 
 The propensity score analysis found that the treatment variable, high searches (for all keywords), was not a good predictor for the number of new cases daily in the US. “Covid Testing” and “Covid Vaccine”  were again found to be strong predictors for the number of new cases, supporting the MLR model chosen. This indicates there is no causal link between the GT search numbers and the number of new cases of COVID-19 in the US. Since there is no causal link found, the MLR model that best predicts the outcome of interest is the model shown in Table 3, and that model will be used in the remainder of this report as the best fit for relating GT data to the number of new cases in the US.
@@ -384,7 +385,7 @@ p3 <- ggplot(alldata, aes(date) ) +
   geom_line(aes(y = predlm, colour = "Predicted")) + 
   geom_line(aes(y = new_cases, colour = "Actual")) + xlab("Date") + 
   ylab("Number of COVID-19 Cases") + ggtitle("Predicted versus Actual Number of \nDaily New COVID-19 Cases Based on MLR Model of GT") + 
-  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Type') 
+  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Type') + theme(text = element_text(size=10))
 
 alldata <- alldata %>%
   mutate(ownmoving = rollmean(predlm, k = 7, fill = NA))
@@ -395,11 +396,11 @@ p4 <- ggplot(alldata, aes(date) ) +
   geom_line(aes(y = ownmoving, colour = "Predicted")) + 
   geom_line(aes(y = newcasesmoving, colour = "Actual")) + xlab("Date") + 
   ylab("Number of COVID-19 Cases") + ggtitle("Predicted versus Actual 7-Day Rolling Average of \nDaily New COVID-19 Cases Based on MLR Model of GT") + 
-  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Type') 
+  theme(plot.title = element_text(hjust = 0.5)) + labs(colour='Type') + theme(text = element_text(size=10))
 
 title2 <- ggdraw() +
   draw_label("Figure 4:", x = 0.05, hjust = 0, size = 10)
-plot_grid(title2, p3, p4, ncol = 1, labels = c('', 'A', 'B'), label_size = 8, rel_heights = c(0.07, 1, 1))
+plot_grid(title2, p3, p4, ncol = 1, labels = c('', 'A', 'B'), label_size = 8, rel_heights = c(0.07, 1, 1)) 
 
 ```
 
@@ -414,22 +415,22 @@ To predict the number of new cases per day in the US, Google search trends data 
 #Conclusions
 The results from this MLR analysis show that the number of new tests per day in the US and the Google search trends for the terms “Covid testing” and “Covid vaccine” are the most significant predictors for the number of new cases in the US per day. This is an interesting finding as the use of Google search data to predict COVID-19 rates and other endemic or pandemic rates is a very useful ability that could predict major outbreaks and allow for preparations and minimizing its impact. The MLR model showed that the only symptom that was a significant predictor for the number of new cases was Shortness of Breath, and overall searches for symptoms were not strong predictors for the outcome. This finding is contrary to hypotheses based on previous research, where many correlation analyses of Google Trends data related to COVID-19 symptoms found a relatively strong correlation between searches for symptoms and cases (Kurian et al., 2020). This could possibly be explained by the use of lag correlations in the research mentioned, as it is likely that GT searches for COVID-19 symptoms might increase earlier than the actual number of cases increase, rather than on the same day. The use of a 7-day moving average was aiming to minimize this effect. This model can be used to predict the number of new COVID-19 cases in the next month using GT search scores throughout the month, making this a very useful model for epidemiological research for COVID-19. This has a significant global impact, as it can be further extended to other countries to predict new cases using the same or additional different GT key words. This leads to the conclusion that GT trends data, specifically searches for “Covid testing” and “Covid vaccine” as well as the number of new tests per day, can be used to predict the number of new COVID-19 cases per day in the US. The correlation analysis results further support this conclusion, showing that GT searches for  “Covid testing” and “Covid vaccine” are the most correlated with higher daily new cases in the US.
 
-	The results of the propensity score analysis showing a lack of causation between high searches for all the keywords and the outcome lead to the relationship between the number of new COVID-19 cases and the GT searches for the 8 keywords to be correlation-based. Considering the nature of the data, this finding is not surprising. It is unlikely that higher searches for COVID-19 related topics on Google would directly be a cause for changes in the number of new cases per day, but rather it is more likely the Google trends are reflective of upcoming changes in COVID-19 numbers and therefore serve as important predictors that correlate with the COVID-19 cases. 
+The results of the propensity score analysis showing a lack of causation between high searches for all the keywords and the outcome lead to the relationship between the number of new COVID-19 cases and the GT searches for the 8 keywords to be correlation-based. Considering the nature of the data, this finding is not surprising. It is unlikely that higher searches for COVID-19 related topics on Google would directly be a cause for changes in the number of new cases per day, but rather it is more likely the Google trends are reflective of upcoming changes in COVID-19 numbers and therefore serve as important predictors that correlate with the COVID-19 cases. 
 
-	Overall, although Figure 4 shows the predicted number of new cases over time to fluctuate more than the actual number, the model is highly beneficial in its accurate prediction of the peaks in daily new COVID-19 cases in the US. Predicting the peaks in new cases is useful in minimizing economic and public health damage for countries, so this analysis shows GT trends can be useful in adding to existing official data to predict peaks through a more holistic analysis. In modern times, it is important to note the role of external data outside of the collected demographic and hospital data in every country in reflecting changes in the population. Although the results show specific GT keywords to be strong predictors of the COVID-19 daily cases, they would be ideal predictors alongside additional data such as age groups, average economic standings of countries, or availability of medical resources, etc. (Ossola, 2020). 
+Overall, although Figure 4 shows the predicted number of new cases over time to fluctuate more than the actual number, the model is highly beneficial in its accurate prediction of the peaks in daily new COVID-19 cases in the US. Predicting the peaks in new cases is useful in minimizing economic and public health damage for countries, so this analysis shows GT trends can be useful in adding to existing official data to predict peaks through a more holistic analysis. In modern times, it is important to note the role of external data outside of the collected demographic and hospital data in every country in reflecting changes in the population. Although the results show specific GT keywords to be strong predictors of the COVID-19 daily cases, they would be ideal predictors alongside additional data such as age groups, average economic standings of countries, or availability of medical resources, etc. (Ossola, 2020). 
 
 #Weaknesses & Next Steps
 
 
-	There are several limitations and weaknesses to this analysis. Firstly, the data used from March 22, 2020 until December 16, 2020. Although this data is recent and covers the majority of available data, the COVID-19 crisis began in the US in January and therefore there are 2 months of data missing from this analysis (Holshue et al., 2020). This was a limitation of the provided data, however since COVID-19 only entered the US in 2020, the data so far still is biased due to the small sample of only being 1 year of data. As more months of information occur, this model could be updated and improved to include new patterns and trends. Secondly, the data extracted from Google Trends only includes data for 8 keywords. This analysis could be significantly improved by beginning the model with many more keywords, and using variable selection techniques to identify the relevant useful predictors. Additionally, GT data may be biased in that it can be influenced by external factors, such as the media or social media trends. For example, previous uses of a similar model attempting to predict flu rates was occasionally incorrectly predicting high rates due to higher GT data, however the higher GT searches was due to the flu being covered more heavily in the media leading to more people researching it (Ossola, 2020). The GT search keywords used in this study may also be reflective of policies in the country rather than actual circumstances—such as higher searches for face masks when they are required by the government rather than when the cases are higher. Usually policies are reflective of actual circumstances so the use of GT search keywords is still useful, however in the US the discrepancy between COVID-19 cases and policies has been noted as differing from other countries (Yong, 2020). This could be minimized in future studies by additional keywords to minimize external influences on the search rates of specific keywords, and by using internet data outside of just Google searches such as Youtube searches or Facebook searches. 
+There are several limitations and weaknesses to this analysis. Firstly, the data used from March 22, 2020 until December 16, 2020. Although this data is recent and covers the majority of available data, the COVID-19 crisis began in the US in January and therefore there are 2 months of data missing from this analysis (Holshue et al., 2020). This was a limitation of the provided data, however since COVID-19 only entered the US in 2020, the data so far still is biased due to the small sample of only being 1 year of data. As more months of information occur, this model could be updated and improved to include new patterns and trends. Secondly, the data extracted from Google Trends only includes data for 8 keywords. This analysis could be significantly improved by beginning the model with many more keywords, and using variable selection techniques to identify the relevant useful predictors. Additionally, GT data may be biased in that it can be influenced by external factors, such as the media or social media trends. For example, previous uses of a similar model attempting to predict flu rates was occasionally incorrectly predicting high rates due to higher GT data, however the higher GT searches was due to the flu being covered more heavily in the media leading to more people researching it (Ossola, 2020). The GT search keywords used in this study may also be reflective of policies in the country rather than actual circumstances—such as higher searches for face masks when they are required by the government rather than when the cases are higher. Usually policies are reflective of actual circumstances so the use of GT search keywords is still useful, however in the US the discrepancy between COVID-19 cases and policies has been noted as differing from other countries (Yong, 2020). This could be minimized in future studies by additional keywords to minimize external influences on the search rates of specific keywords, and by using internet data outside of just Google searches such as Youtube searches or Facebook searches. 
 
-	A non-linear model could also be considered in a future study analysing GT trends as predictors for COVID-19. Additionally, adding a second layer of comparison to the model by investigating the number of new cases and GT trends by geographic regions (by states in the US or by countries, or regions within other countries) would minimize the effect of certain geographic regions being more concentrated in GT searches or in COVID-19 cases and impacting the overall distribution. Another major limitation is due to the relatively small sample size for this data existing so far, a useful training set and test set split was not made in this analysis. A promising future step would be performing a similar analysis including a training and test set split to give a more accurate model and prevent overfitting. Considering the high number of small fluctuations in this data and most epidemiological data, overfitting is a high possibility. Another potential next step would be to use internet data such as GT to predict individual risk for COVID-19 or other diseases, based on geographic search information in their area as well as demographic information. 
+A non-linear model could also be considered in a future study analysing GT trends as predictors for COVID-19. Additionally, adding a second layer of comparison to the model by investigating the number of new cases and GT trends by geographic regions (by states in the US or by countries, or regions within other countries) would minimize the effect of certain geographic regions being more concentrated in GT searches or in COVID-19 cases and impacting the overall distribution. Another major limitation is due to the relatively small sample size for this data existing so far, a useful training set and test set split was not made in this analysis. A promising future step would be performing a similar analysis including a training and test set split to give a more accurate model and prevent overfitting. Considering the high number of small fluctuations in this data and most epidemiological data, overfitting is a high possibility. Another potential next step would be to use internet data such as GT to predict individual risk for COVID-19 or other diseases, based on geographic search information in their area as well as demographic information. 
 
-	Overall, the use of Google Trends data to predict COVID-19 cases over time is a useful model with some strong predictors, the identification of which is very beneficial in predicting and preventing the dangers of the pandemic. However, there are potential sources of bias that should be addressed in future studies and there are many additional factors that would aid the predictions of this model, such as geographic data, demographic data, and other internet data.
+Overall, the use of Google Trends data to predict COVID-19 cases over time is a useful model with some strong predictors, the identification of which is very beneficial in predicting and preventing the dangers of the pandemic. However, there are potential sources of bias that should be addressed in future studies and there are many additional factors that would aid the predictions of this model, such as geographic data, demographic data, and other internet data.
 
 
 ##References:
-References:
+
 1. Corsi, A., de Souza, F.F., Pagani, R.N. et al. Big data analytics as a tool for fighting pandemics: a systematic review of literature. J Ambient Intell Human Comput (2020). https://doi.org/10.1007/s12652-020-02617-4
 
 2. Kurian, S. J., Bhatti, A., Alvi, M. A., Ting, H. H., Storlie, C., Wilson, P. M., . . . Bydon, M. (2020, November 1). Correlations Between COVID-19 Cases and Google Trends Data in the United States: A State-by-State Analysis. Retrieved December 23, 2020, from https://www.mayoclinicproceedings.org/article/S0025-6196(20)30934-4/fulltext 
@@ -460,6 +461,8 @@ Zhang Z. (2016). Variable selection with stepwise and best subset approaches. An
 14. Ossola, A. (2020, September 23). Here's what Google trends can tell us about the spread of coronavirus. Retrieved December 23, 2020, from https://www.weforum.org/agenda/2020/09/google-search-trend-data-coronavirus-health-global-epidemiology/
 
 15. Yong, E. (2020, August 06). How the Pandemic Defeated America. Retrieved December 23, 2020, from https://www.theatlantic.com/magazine/archive/2020/09/coronavirus-american-failure/614191/
+
+16. B. Hofner (2019). papeR: A Toolbox for Writing Pretty Papers and Reports, R package version 1.0-4, https://CRAN.R-project.org/package=papeR.
 
 
 
